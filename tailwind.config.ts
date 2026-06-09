@@ -71,6 +71,10 @@ const config: Config = {
           "0%": { opacity: "0", transform: "translateY(8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        "filter-menu-in": {
+          "0%": { opacity: "0", transform: "translateY(-4px) scale(0.97)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
       },
       animation: {
         "pulse-red": "pulse-red 1.6s ease-in-out infinite",
@@ -78,6 +82,7 @@ const config: Config = {
         "grid-drift": "grid-drift 18s linear infinite",
         "scan-line": "scan-line 6s linear infinite",
         "fade-up": "fade-up 600ms ease-out both",
+        "filter-menu-in": "filter-menu-in 140ms cubic-bezier(0.16, 1, 0.3, 1) both",
       },
     },
   },

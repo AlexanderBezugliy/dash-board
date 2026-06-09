@@ -8,10 +8,12 @@ import {
     useState,
     useTransition,
 } from "react";
-import { Activity, Radar, RefreshCw, Sparkles, Zap } from "lucide-react";
+import { Activity, RefreshCw, Sparkles, Zap } from "lucide-react";
 import type { CheckResponse, MonitoredSite } from "@/lib/types";
 import { makeId, readSites, writeSites } from "@/lib/storage";
+import { applyFilter, countByStatus, type FilterId } from "@/lib/filter";
 import AddSiteForm from "./AddSiteForm";
+import FilterMenu from "./FilterMenu";
 import SiteCard from "./SiteCard";
 import StatusIndicator from "./StatusIndicator";
 
@@ -23,6 +25,7 @@ export default function Dashboard() {
     const [sites, setSites] = useState<MonitoredSite[]>([]);
     const [hydrated, setHydrated] = useState(false);
     const [countdown, setCountdown] = useState(POLL_INTERVAL_MS / 1000);
+    const [filter, setFilter] = useState<FilterId>("all");
     const [, startTransition] = useTransition();
 
     // Refs for transient, synchronous state.
@@ -235,22 +238,30 @@ export default function Dashboard() {
     }, []);
 
     const stats = useMemo(() => {
-        const online = sites.filter((s) => s.status === "Online").length;
-        const offline = sites.filter((s) => s.status === "Offline").length;
-        const checking = sites.filter((s) => s.status === "Checking").length;
+        const counts = countByStatus(sites);
         return {
             total: sites.length,
-            online,
-            offline,
-            checking,
+            online: counts.Online,
+            offline: counts.Offline,
+            checking: counts.Checking,
         };
     }, [sites]);
+
+    // Derived list: filter applied at render time. Recomputed only when
+    // the source list or the active filter changes (rule: derived state
+    // during render, not in an effect).
+    const visibleSites = useMemo(
+        () => applyFilter(sites, filter),
+        [sites, filter],
+    );
 
     return (
         <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 pt-10 pb-24">
             <Header
                 stats={stats}
                 countdown={countdown}
+                filter={filter}
+                onFilterChange={setFilter}
                 onRefresh={handleManualRefresh}
             />
 
@@ -261,9 +272,11 @@ export default function Dashboard() {
             <section className="mt-10">
                 {sites.length === 0 ? (
                     <EmptyState />
+                ) : visibleSites.length === 0 ? (
+                    <FilterEmpty filter={filter} />
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-                        {sites.map((site) => (
+                        {visibleSites.map((site) => (
                             <SiteCard
                                 key={site.id}
                                 site={site}
@@ -273,8 +286,6 @@ export default function Dashboard() {
                     </div>
                 )}
             </section>
-
-            <Footer />
         </div>
     );
 }
@@ -282,6 +293,8 @@ export default function Dashboard() {
 function Header({
     stats,
     countdown,
+    filter,
+    onFilterChange,
     onRefresh,
 }: {
     stats: {
@@ -291,38 +304,31 @@ function Header({
         checking: number;
     };
     countdown: number;
+    filter: FilterId;
+    onFilterChange: (next: FilterId) => void;
     onRefresh: () => void;
 }) {
     return (
         <header className="gsap-reveal flex flex-col gap-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-                {/* <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <div className="absolute inset-0 -m-2 rounded-full bg-neon-cyan/20 blur-2xl" />
-                        <Radar className="relative w-6 h-6 text-neon-cyan" />
-                    </div>
-                    <div className="leading-none">
-                        <p className="font-mono text-[10px] tracking-[0.32em] text-white/40">
-                            UPTIME · MONITOR
-                        </p>
-                        <h1 className="mt-1 font-display text-[44px] sm:text-[56px] leading-[0.95] tracking-tight text-white">
-                            <span className="italic text-neon-cyan/90">
-                                Pulse
-                            </span>{" "}
-                            <span className="text-white/85">— всё онлайн?</span>
-                        </h1>
-                    </div>
-                </div> */}
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+                <button
+                    onClick={onRefresh}
+                    className="btn-neon inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium tracking-wide"
+                >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Check now</span>
+                </button>
 
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={onRefresh}
-                        className="btn-neon inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium tracking-wide"
-                    >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Check now</span>
-                    </button>
-                </div>
+                <FilterMenu
+                    value={filter}
+                    onChange={onFilterChange}
+                    counts={{
+                        Online: stats.online,
+                        Offline: stats.offline,
+                        Checking: stats.checking,
+                    }}
+                    total={stats.total}
+                />
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -395,13 +401,23 @@ function EmptyState() {
     );
 }
 
-function Footer() {
+function FilterEmpty({ filter }: { filter: FilterId }) {
+    const hint =
+        filter === "online"
+            ? "Сейчас все сайты либо offline, либо ещё проверяются."
+            : filter === "offline"
+              ? "Хорошие новости: ни один сайт сейчас не падает."
+              : filter === "new"
+                ? "Все добавленные сайты уже прошли хотя бы одну проверку."
+                : "Нет сайтов с подтверждённым временем последней проверки.";
+
     return (
-        <footer className="mt-16 flex items-center justify-center gap-2 text-[11px] font-mono text-white/30">
-            <span className="inline-block w-1 h-1 rounded-full bg-neon-cyan/70 shadow-[0_0_8px_rgba(34,233,255,0.7)]" />
-            <span>
-                Pulse · Next.js · LocalStorage · {new Date().getFullYear()}
-            </span>
-        </footer>
+        <div className="gsap-reveal glass-card relative flex flex-col items-center justify-center text-center px-6 py-12">
+            <p className="font-mono text-[10px] tracking-[0.32em] text-white/40 uppercase">
+                No matches
+            </p>
+            <p className="mt-2 max-w-md text-sm text-white/55">{hint}</p>
+        </div>
     );
 }
+
